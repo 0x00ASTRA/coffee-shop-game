@@ -7,5 +7,9 @@ pub fn main() !void {
 test {
     const farming = @import("farming.zig");
     _ = farming;
+    const storage = @import("storage.zig");
+    _ = storage;
+    const economy = @import("economy.zig");
+    _ = economy;
     @import("std").testing.refAllDecls(@This());
 }
