@@ -13,5 +13,8 @@ test {
     _ = economy;
     const flavor = @import("flavor.zig");
     _ = flavor;
+
+    const bitwise_utils = @import("utils/bitwise.zig");
+    _ = bitwise_utils;
     @import("std").testing.refAllDecls(@This());
 }

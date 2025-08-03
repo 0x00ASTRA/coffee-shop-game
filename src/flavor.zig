@@ -63,6 +63,12 @@ const ContainsNotesFlags = union(enum) {
     minty: MintyFlags,
 };
 
+const bitwise = @import("utils/bitwise.zig");
+const setFlags = bitwise.setFlags;
+const clearFlags = bitwise.clearFlags;
+const hasFlags = bitwise.hasFlags;
+const bitwiseAnd = bitwise.bitwiseAnd;
+
 pub const FlavorProfile = struct {
     fruity: FruityFlags = .{},
     floral: FloralFlags = .{},
@@ -72,40 +78,26 @@ pub const FlavorProfile = struct {
 
     /// Returns true if *any* of the provided notes are present
     pub fn hasFlavorNotes(self: FlavorProfile, mask: FlavorNotesFlags) bool {
-        const no_fruity: FruityFlags = .{};
-        const no_floral: FloralFlags = .{};
-        const no_sweet: SweetFlags = .{};
-        const no_nutty: NuttyFlags = .{};
-        const no_minty: MintyFlags = .{};
         const this_flags: FlavorNotesFlags = .{
-            .fruity = (self.fruity != no_fruity),
-            .floral = (self.floral != no_floral),
-            .sweet = (self.sweet != no_sweet),
-            .nutty = (self.nutty != no_nutty),
-            .minty = (self.minty != no_minty),
+            .fruity = self.hasFruityNotes(),
+            .floral = self.hasFloralNotes(),
+            .sweet = self.hasSweetNotes(),
+            .nutty = self.hasNuttyNotes(),
+            .minty = self.hasMintyNotes(),
         };
-        return (@as(u8, @bitCast(this_flags)) & @as(u8, @bitCast(mask))) != 0;
+        const empty_mask: FlavorNotesFlags = .{};
+        return bitwiseAnd(FlavorNotesFlags, this_flags, mask) != empty_mask;
     }
 
     /// Returns true if *all* provided notes are present
     pub fn containsFlavorNotes(self: FlavorProfile, flags: ContainsNotesFlags) bool {
-        switch (flags) {
-            .fruity => |mask| {
-                return self.containsFruityNotes(mask);
-            },
-            .floral => |mask| {
-                return self.containsFloralNotes(mask);
-            },
-            .sweet => |mask| {
-                return self.containsSweetNotes(mask);
-            },
-            .nutty => |mask| {
-                return self.containsNuttyNotes(mask);
-            },
-            .minty => |mask| {
-                return self.containsMintyNotes(mask);
-            },
-        }
+        return switch (flags) {
+            .fruity => |mask| self.containsFruityNotes(mask),
+            .floral => |mask| self.containsFloralNotes(mask),
+            .sweet => |mask| self.containsSweetNotes(mask),
+            .nutty => |mask| self.containsNuttyNotes(mask),
+            .minty => |mask| self.containsMintyNotes(mask),
+        };
     }
 
     /// Returns true if *any* fruity notes are present
@@ -116,12 +108,12 @@ pub const FlavorProfile = struct {
 
     /// Returns true if *all* provided fruity notes are present
     pub fn containsFruityNotes(self: FlavorProfile, mask: FruityFlags) bool {
-        return @as(u16, @bitCast(self.fruity)) & @as(u16, @bitCast(mask)) == @as(u16, @bitCast(mask));
+        return hasFlags(FruityFlags, self.fruity, mask);
     }
 
     /// Add a fruity note to the flavor profile. Does nothing if note(s) present.
     pub fn addFruityNotes(self: *FlavorProfile, mask: FruityFlags) void {
-        self.fruity = @bitCast(@as(u16, @bitCast(self.fruity)) | @as(u16, @bitCast(mask)));
+        self.fruity = setFlags(FruityFlags, self.fruity, mask);
     }
 
     /// Replaces the fruity notes with the provided notes
@@ -129,9 +121,9 @@ pub const FlavorProfile = struct {
         self.fruity = mask;
     }
 
-    /// Removes the provided fruity note(s) from the profile. Does nothing if already present
+    /// Removes the provided fruity note(s) from the profile.
     pub fn removeFruityNotes(self: *FlavorProfile, mask: FruityFlags) void {
-        self.fruity = @bitCast(@as(u16, @bitCast(self.fruity)) & ~@as(u16, @bitCast(mask)));
+        self.fruity = clearFlags(FruityFlags, self.fruity, mask);
     }
 
     /// Returns true if *any* floral notes are present
@@ -142,12 +134,12 @@ pub const FlavorProfile = struct {
 
     /// Returns true if *all* provided floral notes are present
     pub fn containsFloralNotes(self: FlavorProfile, mask: FloralFlags) bool {
-        return @as(u8, @bitCast(self.floral)) & @as(u8, @bitCast(mask)) == @as(u8, @bitCast(mask));
+        return hasFlags(FloralFlags, self.floral, mask);
     }
 
     /// Add floral notes to the flavor profile. Does nothing if note(s) already present.
     pub fn addFloralNotes(self: *FlavorProfile, mask: FloralFlags) void {
-        self.floral = @bitCast(@as(u8, @bitCast(self.floral)) | @as(u8, @bitCast(mask)));
+        self.floral = setFlags(FloralFlags, self.floral, mask);
     }
 
     /// Replaces the floral notes with the provided notes
@@ -157,7 +149,7 @@ pub const FlavorProfile = struct {
 
     /// Removes the provided floral note(s) from the profile.
     pub fn removeFloralNotes(self: *FlavorProfile, mask: FloralFlags) void {
-        self.floral = @bitCast(@as(u8, @bitCast(self.floral)) & ~@as(u8, @bitCast(mask)));
+        self.floral = clearFlags(FloralFlags, self.floral, mask);
     }
 
     /// Returns true if *any* sweet notes are present
@@ -168,12 +160,12 @@ pub const FlavorProfile = struct {
 
     /// Returns true if *all* provided sweet notes are present
     pub fn containsSweetNotes(self: FlavorProfile, mask: SweetFlags) bool {
-        return @as(u8, @bitCast(self.sweet)) & @as(u8, @bitCast(mask)) == @as(u8, @bitCast(mask));
+        return hasFlags(SweetFlags, self.sweet, mask);
     }
 
     /// Add sweet notes to the flavor profile. Does nothing if note(s) already present.
     pub fn addSweetNotes(self: *FlavorProfile, mask: SweetFlags) void {
-        self.sweet = @bitCast(@as(u8, @bitCast(self.sweet)) | @as(u8, @bitCast(mask)));
+        self.sweet = setFlags(SweetFlags, self.sweet, mask);
     }
 
     /// Replaces the sweet notes with the provided notes
@@ -183,7 +175,7 @@ pub const FlavorProfile = struct {
 
     /// Removes the provided sweet note(s) from the profile.
     pub fn removeSweetNotes(self: *FlavorProfile, mask: SweetFlags) void {
-        self.sweet = @bitCast(@as(u8, @bitCast(self.sweet)) & ~@as(u8, @bitCast(mask)));
+        self.sweet = clearFlags(SweetFlags, self.sweet, mask);
     }
 
     /// Returns true if *any* nutty notes are present
@@ -194,12 +186,12 @@ pub const FlavorProfile = struct {
 
     /// Returns true if *all* provided nutty notes are present
     pub fn containsNuttyNotes(self: FlavorProfile, mask: NuttyFlags) bool {
-        return @as(u16, @bitCast(self.nutty)) & @as(u16, @bitCast(mask)) == @as(u16, @bitCast(mask));
+        return hasFlags(NuttyFlags, self.nutty, mask);
     }
 
     /// Add nutty notes to the flavor profile. Does nothing if note(s) already present.
     pub fn addNuttyNotes(self: *FlavorProfile, mask: NuttyFlags) void {
-        self.nutty = @bitCast(@as(u16, @bitCast(self.nutty)) | @as(u16, @bitCast(mask)));
+        self.nutty = setFlags(NuttyFlags, self.nutty, mask);
     }
 
     /// Replaces the nutty notes with the provided notes
@@ -209,7 +201,7 @@ pub const FlavorProfile = struct {
 
     /// Removes the provided nutty note(s) from the profile.
     pub fn removeNuttyNotes(self: *FlavorProfile, mask: NuttyFlags) void {
-        self.nutty = @bitCast(@as(u16, @bitCast(self.nutty)) & ~@as(u16, @bitCast(mask)));
+        self.nutty = clearFlags(NuttyFlags, self.nutty, mask);
     }
 
     /// Returns true if *any* minty notes are present
@@ -220,12 +212,12 @@ pub const FlavorProfile = struct {
 
     /// Returns true if *all* provided minty notes are present
     pub fn containsMintyNotes(self: FlavorProfile, mask: MintyFlags) bool {
-        return @as(u8, @bitCast(self.minty)) & @as(u8, @bitCast(mask)) == @as(u8, @bitCast(mask));
+        return hasFlags(MintyFlags, self.minty, mask);
     }
 
     /// Add minty notes to the flavor profile. Does nothing if note(s) already present.
     pub fn addMintyNotes(self: *FlavorProfile, mask: MintyFlags) void {
-        self.minty = @bitCast(@as(u8, @bitCast(self.minty)) | @as(u8, @bitCast(mask)));
+        self.minty = setFlags(MintyFlags, self.minty, mask);
     }
 
     /// Replaces the minty notes with the provided notes
@@ -235,7 +227,7 @@ pub const FlavorProfile = struct {
 
     /// Removes the provided minty note(s) from the profile.
     pub fn removeMintyNotes(self: *FlavorProfile, mask: MintyFlags) void {
-        self.minty = @bitCast(@as(u8, @bitCast(self.minty)) & ~@as(u8, @bitCast(mask)));
+        self.minty = clearFlags(MintyFlags, self.minty, mask);
     }
 };
 
