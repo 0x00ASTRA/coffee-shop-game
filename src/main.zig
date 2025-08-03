@@ -11,5 +11,7 @@ test {
     _ = storage;
     const economy = @import("economy.zig");
     _ = economy;
+    const flavor = @import("flavor.zig");
+    _ = flavor;
     @import("std").testing.refAllDecls(@This());
 }
