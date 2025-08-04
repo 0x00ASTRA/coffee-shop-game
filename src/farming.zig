@@ -159,6 +159,12 @@ pub const Farm = struct {
         self.growth_stages.items[idx] = .seed;
     }
 
+    /// Checks if a plot has a seed
+    pub fn hasSeed(self: *Farm, plot_id: u64) !bool {
+        const idx = self._plot_id_to_idx.get(plot_id) orelse return FarmError.InvalidPlotId;
+        return self.plot_seeds.items[idx] != null;
+    }
+
     /// Remove any planted seed from the plot.
     pub fn clearPlot(self: *Farm, plot_id: u64) !void {
         const idx = self._plot_id_to_idx.get(plot_id) orelse return FarmError.InvalidPlotId;
@@ -241,7 +247,7 @@ test "Farm init and deinit" {
     try std.testing.expectEqual(@as(usize, 2), farm.plots.items.len);
 }
 
-test "Farm plant and get seed" {
+test "Farm plant, has and get seed" {
     const allocator = std.testing.allocator;
 
     var farm = try Farm.init(allocator, .{
@@ -274,8 +280,10 @@ test "Farm plant and get seed" {
 
     try farm.plantSeed(1, seed);
     const planted = try farm.getPlotSeed(1);
+    const has_seed = try farm.hasSeed(1);
     try std.testing.expect(planted != null);
     try std.testing.expectEqualStrings("Test Seed", planted.?.name);
+    try std.testing.expect(has_seed);
 }
 
 test "Farm clearPlot removes seed" {
