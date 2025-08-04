@@ -1,5 +1,6 @@
 const std = @import("std");
 const GridLocation2D = @import("utils/location.zig").GridLocation2D;
+const FlavorProfile = @import("flavor.zig").FlavorProfile;
 
 pub const FarmError = error{
     InvalidPlotId,
@@ -51,6 +52,15 @@ pub const Seed = struct {
     growth_curve: GrowthCurve,
 };
 
+// A harvestable item with a flavor profile a fruit class
+pub const Fruit = struct {
+    name: []const u8, // ie "Granny Smith"
+    id: u64,
+    description: []const u8,
+    flavor: FlavorProfile,
+};
+
+// A place to plant your seeds
 pub const Plot = struct {
     name: []const u8 = "Plot",
     id: u64,
@@ -68,6 +78,7 @@ pub const Farm = struct {
     allocator: std.mem.Allocator,
     id: u64,
     name: []const u8,
+    owner_id: u64,
     plots: std.ArrayList(Plot),
     plot_locations: std.ArrayList(GridLocation2D),
     plot_seeds: std.ArrayList(?Seed),
@@ -77,12 +88,7 @@ pub const Farm = struct {
     _last_update: i64 = 0,
 
     /// Initialize a new farm.
-    pub fn init(allocator: std.mem.Allocator, opts: struct {
-        id: u64,
-        name: []const u8,
-        num_plots: usize,
-        plot_locations: []GridLocation2D,
-    }) !Farm {
+    pub fn init(allocator: std.mem.Allocator, opts: FarmInitOpts) !Farm {
         std.debug.assert(opts.plot_locations.len == opts.num_plots);
 
         var plots = try std.ArrayList(Plot).initCapacity(allocator, opts.num_plots);
@@ -108,6 +114,7 @@ pub const Farm = struct {
             .allocator = allocator,
             .id = opts.id,
             .name = name_copy,
+            .owner_id = opts.owner_id,
             .plots = plots,
             .plot_locations = plot_locations,
             .plot_seeds = plot_seeds,
@@ -228,6 +235,294 @@ pub const Farm = struct {
     }
 };
 
+/// Options for initializing a farm.
+pub const FarmInitOpts = struct {
+    id: u64,
+    name: []const u8,
+    num_plots: usize,
+    owner_id: u64,
+    plot_locations: []GridLocation2D,
+};
+
+pub const FarmingSystem = struct {
+    allocator: std.mem.Allocator,
+    seeds: std.ArrayList(Seed),
+    _seed_id_to_idx: std.AutoHashMap(u64, usize),
+    fruits: std.ArrayList(Fruit),
+    _fruit_id_to_idx: std.AutoHashMap(u64, usize),
+    farms: std.ArrayList(Farm),
+    _farm_id_to_idx: std.AutoHashMap(u64, usize),
+
+    pub fn init(allocator: std.mem.Allocator, comptime opts: struct {
+        default_seeds: []const Seed,
+        default_fruits: []const Fruit,
+        default_farm_opts: []const FarmInitOpts,
+    }) !*FarmingSystem {
+        const self = try allocator.create(FarmingSystem);
+        errdefer allocator.destroy(self);
+
+        var seeds = std.ArrayList(Seed).init(allocator);
+        errdefer seeds.deinit();
+        try seeds.appendSlice(opts.default_seeds);
+
+        var seed_id_to_idx = std.AutoHashMap(u64, usize).init(allocator);
+        errdefer seed_id_to_idx.deinit();
+        for (0.., seeds.items) |i, s| {
+            try seed_id_to_idx.put(s.id, i);
+        }
+
+        var fruits = std.ArrayList(Fruit).init(allocator);
+        errdefer fruits.deinit();
+        try fruits.appendSlice(opts.default_fruits);
+
+        var fruit_id_to_idx = std.AutoHashMap(u64, usize).init(allocator);
+        errdefer fruit_id_to_idx.deinit();
+        for (0.., fruits.items) |i, f| {
+            try fruit_id_to_idx.put(f.id, i);
+        }
+
+        var farms = std.ArrayList(Farm).init(allocator);
+        errdefer farms.deinit();
+        for (opts.default_farm_opts) |farm_opts| {
+            try farms.append(try Farm.init(allocator, farm_opts));
+        }
+
+        var farm_id_to_idx = std.AutoHashMap(u64, usize).init(allocator);
+        errdefer farm_id_to_idx.deinit();
+        for (0.., farms.items) |i, f| {
+            try farm_id_to_idx.put(f.id, i);
+        }
+
+        self.* = .{
+            .allocator = allocator,
+            .seeds = seeds,
+            ._seed_id_to_idx = seed_id_to_idx,
+            .fruits = fruits,
+            ._fruit_id_to_idx = fruit_id_to_idx,
+            .farms = farms,
+            ._farm_id_to_idx = farm_id_to_idx,
+        };
+        return self;
+    }
+
+    pub fn deinit(self: *FarmingSystem) void {
+        self._farm_id_to_idx.deinit();
+        self._fruit_id_to_idx.deinit();
+        self._seed_id_to_idx.deinit();
+        self.fruits.deinit();
+        self.seeds.deinit();
+        for (self.farms.items) |*f| {
+            f.deinit();
+        }
+        self.farms.deinit();
+        self.allocator.destroy(self);
+    }
+
+    /// Add a new seed to the farming system.
+    pub fn addSeed(self: *FarmingSystem, seed: Seed) !void {
+        if (self._seed_id_to_idx.contains(seed.id)) {
+            return error.DuplicateSeedId;
+        }
+        const index = self.seeds.items.len;
+        try self.seeds.append(seed);
+        try self._seed_id_to_idx.put(seed.id, index);
+    }
+
+    /// Remove a seed from the farming system.
+    pub fn removeSeed(self: *FarmingSystem, seed_id: u64) !void {
+        const index = self._seed_id_to_idx.get(seed_id) orelse return error.SeedNotFound;
+        _ = self.seeds.swapRemove(index);
+        _ = self._seed_id_to_idx.remove(seed_id);
+    }
+
+    /// Add a new fruit to the farming system.
+    pub fn addFruit(self: *FarmingSystem, fruit: Fruit) !void {
+        if (self._fruit_id_to_idx.contains(fruit.id)) {
+            return error.DuplicateFruitId;
+        }
+        const index = self.fruits.items.len;
+        try self.fruits.append(fruit);
+        try self._fruit_id_to_idx.put(fruit.id, index);
+    }
+
+    /// Remove a fruit from the farming system.
+    pub fn removeFruit(self: *FarmingSystem, fruit_id: u64) !void {
+        const index = self._fruit_id_to_idx.get(fruit_id) orelse return error.FruitNotFound;
+        _ = self.fruits.swapRemove(index);
+        _ = self._fruit_id_to_idx.remove(fruit_id);
+    }
+
+    /// Add a new farm to the farming system from an options struct.
+    pub fn addFarm(self: *FarmingSystem, opts: FarmInitOpts) !void {
+        if (self._farm_id_to_idx.contains(opts.id)) {
+            return error.DuplicateFarmId;
+        }
+        const index = self.farms.items.len;
+        const new_farm = try Farm.init(self.allocator, opts);
+        try self.farms.append(new_farm);
+        try self._farm_id_to_idx.put(opts.id, index);
+    }
+
+    /// Remove a farm from the farming system and deinitialize it.
+    pub fn removeFarm(self: *FarmingSystem, farm_id: u64) !void {
+        const index = self._farm_id_to_idx.get(farm_id) orelse return error.FarmNotFound;
+        self.farms.items[index].deinit();
+        _ = self.farms.swapRemove(index);
+        _ = self._farm_id_to_idx.remove(farm_id);
+    }
+
+    /// Set a new owner for a specific farm.
+    pub fn setFarmOwner(self: *FarmingSystem, farm_id: u64, owner_id: u64) !void {
+        const index = self._farm_id_to_idx.get(farm_id) orelse return error.FarmNotFound;
+        self.farms.items[index].owner_id = owner_id;
+    }
+
+    pub fn update(self: *FarmingSystem) void {
+        for (self.farms.items) |*f| {
+            f.update();
+        }
+    }
+};
+
+test "FarmingSystem init, update and deinit" {
+    const allocator = std.testing.allocator;
+    const flavor_profile: FlavorProfile = .{ .fruity = .{ .grapefruit = true } };
+    const growth_curve = comptime GrowthCurve.init(&[_]i64{ 0, 1, 2, 3, 4, 5 });
+    const farm_opts = FarmInitOpts{ .id = 1, .name = "Test Farm 1", .owner_id = 0, .num_plots = 2, .plot_locations = @constCast(&[_]GridLocation2D{
+        .{ .x = 1, .y = 1 },
+        .{ .x = 2, .y = 1 },
+    }) };
+
+    const farming_system = try FarmingSystem.init(allocator, .{
+        .default_fruits = @constCast(&[_]Fruit{
+            .{ .id = 1, .name = "Test Fruit 1", .description = "a test fruit.", .flavor = flavor_profile },
+        }),
+        .default_farm_opts = @constCast(&[_]FarmInitOpts{
+            farm_opts,
+        }),
+        .default_seeds = @constCast(&[_]Seed{
+            .{
+                .id = 1,
+                .name = "Test Seed 1",
+                .description = "a test seed.",
+                .fruit_id = 1,
+                .min_yield = 4,
+                .max_yield = 7,
+                .growth_curve = growth_curve,
+            },
+        }),
+    });
+    defer farming_system.deinit();
+
+    const ts = std.time.timestamp();
+    try farming_system.farms.items[0].plantSeed(1, farming_system.seeds.items[0]);
+    farming_system.farms.items[0].growth_start_times.items[0] = ts - 3;
+
+    farming_system.update();
+
+    const gs = try farming_system.farms.items[0].getPlotGrowthStage(1);
+    try std.testing.expect(gs.? != .seed);
+}
+
+test "FarmingSystem add and remove seed" {
+    const allocator = std.testing.allocator;
+    const growth_curve = comptime GrowthCurve.init(&[_]i64{ 0, 1, 2, 3, 4, 5 });
+
+    const farming_system = try FarmingSystem.init(allocator, .{
+        .default_seeds = &[_]Seed{},
+        .default_fruits = &[_]Fruit{},
+        .default_farm_opts = &[_]FarmInitOpts{},
+    });
+    defer farming_system.deinit();
+
+    const new_seed = Seed{
+        .id = 100,
+        .name = "New Seed",
+        .description = "A new seed to add.",
+        .fruit_id = 1,
+        .min_yield = 1,
+        .max_yield = 1,
+        .growth_curve = growth_curve,
+    };
+    try farming_system.addSeed(new_seed);
+
+    try std.testing.expectEqual(@as(usize, 1), farming_system.seeds.items.len);
+    try std.testing.expectEqual(@as(usize, 0), farming_system._seed_id_to_idx.get(100).?);
+
+    try farming_system.removeSeed(100);
+    try std.testing.expectEqual(@as(usize, 0), farming_system.seeds.items.len);
+    try std.testing.expectEqual(null, farming_system._seed_id_to_idx.get(100));
+}
+
+test "FarmingSystem add and remove fruit" {
+    const allocator = std.testing.allocator;
+    const flavor_profile: FlavorProfile = .{ .fruity = .{ .grapefruit = true } };
+
+    const farming_system = try FarmingSystem.init(allocator, .{
+        .default_seeds = &[_]Seed{},
+        .default_fruits = &[_]Fruit{},
+        .default_farm_opts = &[_]FarmInitOpts{},
+    });
+    defer farming_system.deinit();
+
+    const new_fruit = Fruit{
+        .id = 101,
+        .name = "New Fruit",
+        .description = "A new fruit to add.",
+        .flavor = flavor_profile,
+    };
+    try farming_system.addFruit(new_fruit);
+
+    try std.testing.expectEqual(@as(usize, 1), farming_system.fruits.items.len);
+    try std.testing.expectEqual(@as(usize, 0), farming_system._fruit_id_to_idx.get(101).?);
+
+    try farming_system.removeFruit(101);
+    try std.testing.expectEqual(@as(usize, 0), farming_system.fruits.items.len);
+    try std.testing.expectEqual(null, farming_system._fruit_id_to_idx.get(101));
+}
+
+test "FarmingSystem add and remove farm" {
+    const allocator = std.testing.allocator;
+    const farm_opts = FarmInitOpts{ .id = 1, .name = "Test Farm 1", .owner_id = 0, .num_plots = 2, .plot_locations = @constCast(&[_]GridLocation2D{
+        .{ .x = 1, .y = 1 },
+        .{ .x = 2, .y = 1 },
+    }) };
+
+    const farming_system = try FarmingSystem.init(allocator, .{
+        .default_seeds = &[_]Seed{},
+        .default_fruits = &[_]Fruit{},
+        .default_farm_opts = &[_]FarmInitOpts{},
+    });
+    defer farming_system.deinit();
+
+    try farming_system.addFarm(farm_opts);
+
+    try std.testing.expectEqual(@as(usize, 1), farming_system.farms.items.len);
+    try std.testing.expectEqual(@as(usize, 0), farming_system._farm_id_to_idx.get(1).?);
+
+    try farming_system.removeFarm(1);
+    try std.testing.expectEqual(@as(usize, 0), farming_system.farms.items.len);
+    try std.testing.expectEqual(null, farming_system._farm_id_to_idx.get(1));
+}
+
+test "FarmingSystem set farm owner" {
+    const allocator = std.testing.allocator;
+    const farm_opts = FarmInitOpts{ .id = 1, .name = "Test Farm 1", .owner_id = 0, .num_plots = 2, .plot_locations = @constCast(&[_]GridLocation2D{
+        .{ .x = 1, .y = 1 },
+        .{ .x = 2, .y = 1 },
+    }) };
+
+    const farming_system = try FarmingSystem.init(allocator, .{
+        .default_seeds = &[_]Seed{},
+        .default_fruits = &[_]Fruit{},
+        .default_farm_opts = @constCast(&[_]FarmInitOpts{farm_opts}),
+    });
+    defer farming_system.deinit();
+
+    try farming_system.setFarmOwner(1, 999);
+    try std.testing.expectEqual(@as(u64, 999), farming_system.farms.items[0].owner_id);
+}
+
 test "Farm init and deinit" {
     const allocator = std.testing.allocator;
 
@@ -235,6 +530,7 @@ test "Farm init and deinit" {
         .id = 1,
         .name = "Test Farm",
         .num_plots = 2,
+        .owner_id = 1,
         .plot_locations = @constCast(&[_]GridLocation2D{
             .{ .x = 0, .y = 0 },
             .{ .x = 1, .y = 1 },
@@ -254,6 +550,7 @@ test "Farm plant, has and get seed" {
         .id = 2,
         .name = "Test",
         .num_plots = 1,
+        .owner_id = 1,
         .plot_locations = @constCast(&[_]GridLocation2D{.{
             .x = 0,
             .y = 0,
@@ -293,6 +590,7 @@ test "Farm clearPlot removes seed" {
         .id = 3,
         .name = "Test",
         .num_plots = 1,
+        .owner_id = 1,
         .plot_locations = @constCast(&[_]GridLocation2D{.{
             .x = 0,
             .y = 0,
@@ -331,6 +629,7 @@ test "getPlotLocation returns correct coordinates" {
         .id = 4,
         .name = "Test",
         .num_plots = 1,
+        .owner_id = 1,
         .plot_locations = @constCast(&[_]GridLocation2D{loc}),
     });
     defer farm.deinit();
@@ -346,6 +645,7 @@ test "update changes growth stage" {
         .id = 5,
         .name = "Update Test",
         .num_plots = 1,
+        .owner_id = 1,
         .plot_locations = @constCast(&[_]GridLocation2D{.{
             .x = 0,
             .y = 0,
@@ -386,6 +686,7 @@ test "harvestPlot returns yield and fruit_id" {
         .id = 6,
         .name = "Harvest Test",
         .num_plots = 1,
+        .owner_id = 1,
         .plot_locations = @constCast(&[_]GridLocation2D{.{
             .x = 0,
             .y = 0,
@@ -429,6 +730,7 @@ test "planting in occupied plot fails" {
         .id = 7,
         .name = "Fail Test",
         .num_plots = 1,
+        .owner_id = 1,
         .plot_locations = @constCast(&[_]GridLocation2D{.{
             .x = 0,
             .y = 0,
