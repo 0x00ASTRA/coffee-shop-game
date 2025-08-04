@@ -52,7 +52,7 @@ pub const Seed = struct {
     growth_curve: GrowthCurve,
 };
 
-// A harvestable item with a flavor profile a fruit class
+// A harvestable item with a flavor profile
 pub const Fruit = struct {
     name: []const u8, // ie "Granny Smith"
     id: u64,
